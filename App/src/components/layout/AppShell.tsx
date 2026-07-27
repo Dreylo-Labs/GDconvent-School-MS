@@ -11,7 +11,7 @@ const navigation = [
   ['/updates', 'Updates', Bell],
   ['/profile', 'Profile', UserRound],
 ] as const;
-const academicRoutes = new Set(['/attendance', '/exams', '/report-card', '/leave', '/timetable']);
+const academicRoutes = new Set(['/attendance', '/exams', '/report-card', '/leave', '/timetable', '/transport']);
 
 export function AppShell({ title, back = false, children, action }: {
   title?: string;

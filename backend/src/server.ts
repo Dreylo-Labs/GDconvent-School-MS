@@ -11,7 +11,21 @@ import { runMonthlyBilling, schoolDate } from './services/fee-billing.js';
 
 if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required');
 const app = express();
-app.use(helmet()); app.use(cors({ origin: process.env.FRONTEND_URL ?? 'http://localhost:3000' })); app.use(express.json()); app.use(morgan('dev'));
+const allowedOrigins = (process.env.FRONTEND_URLS ?? process.env.FRONTEND_URL ?? 'http://localhost:3000')
+  .split(',')
+  .map(origin => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+app.use(helmet());
+app.use(cors({
+  origin(origin, callback) {
+    // Requests without an Origin header are server-to-server, native, or health-check requests.
+    if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ''))) return callback(null, true);
+    return callback(new Error(`CORS origin is not allowed: ${origin}`));
+  },
+}));
+app.use(express.json());
+app.use(morgan('dev'));
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'gd-school-api' }));
 app.use('/api/auth', authRouter); app.use('/api/modules', authenticate, modulesRouter); app.use('/api', authenticate, resourceRouter);
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => { console.error(err); res.status(500).json({ message: 'Internal server error' }); });

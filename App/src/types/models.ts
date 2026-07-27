@@ -38,6 +38,51 @@ export type Child = {
   recentResults: ExamResult[];
 };
 
+export type TransportVehicle = {
+  id: string;
+  vehicleNo: string;
+  registrationNo: string;
+  type: string;
+  driverName: string;
+  driverPhone: string;
+  attendantName?: string;
+  attendantPhone?: string;
+  status: string;
+};
+
+export type TransportStop = {
+  id: string;
+  name: string;
+  pickupTime?: string;
+  dropTime?: string;
+  landmark?: string;
+};
+
+export type TransportAssignment = {
+  id: string;
+  status: string;
+  effectiveFrom: string;
+  notes?: string;
+  stop?: TransportStop;
+  route: {
+    id: string;
+    code: string;
+    name: string;
+    morningStart?: string;
+    afternoonStart?: string;
+    status: string;
+    vehicle?: TransportVehicle;
+  };
+};
+
+export type TransportStudent = {
+  id: string;
+  admissionNo: string;
+  firstName: string;
+  lastName: string;
+  transportAssignment?: TransportAssignment | null;
+};
+
 export type AttendanceRecord = {
   id: string;
   date: string;

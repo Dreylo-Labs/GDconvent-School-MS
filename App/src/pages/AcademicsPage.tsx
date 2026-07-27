@@ -1,4 +1,4 @@
-import { CalendarDays, ChevronRight, Clock3, GraduationCap, Stethoscope } from 'lucide-react';
+import { BusFront, CalendarDays, ChevronRight, Clock3, GraduationCap, Stethoscope } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
 
@@ -7,6 +7,7 @@ const modules = [
   ['Exams & results', 'Schedules, marks and report cards', GraduationCap, '/exams'],
   ['Timetable', 'Daily classes and teachers', Clock3, '/timetable'],
   ['Apply leave', 'Submit and track leave requests', Stethoscope, '/leave'],
+  ['School transport', 'Bus, route, stop and driver details', BusFront, '/transport'],
 ] as const;
 
 export default function AcademicsPage() {

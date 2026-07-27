@@ -14,6 +14,7 @@ const ExamsPage = lazy(() => import('./pages/ExamsPage'));
 const ReportCardPage = lazy(() => import('./pages/ReportCardPage'));
 const LeavePage = lazy(() => import('./pages/LeavePage'));
 const TimetablePage = lazy(() => import('./pages/TimetablePage'));
+const TransportPage = lazy(() => import('./pages/TransportPage'));
 const UpdatesPage = lazy(() => import('./pages/UpdatesPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 
@@ -32,6 +33,7 @@ function AppRoutes() {
           <Route path="/report-card" element={<ReportCardPage />} />
           <Route path="/leave" element={<LeavePage />} />
           <Route path="/timetable" element={<TimetablePage />} />
+          <Route path="/transport" element={<TransportPage />} />
           <Route path="/updates" element={<UpdatesPage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Route>
