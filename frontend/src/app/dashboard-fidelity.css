@@ -1,0 +1,39 @@
+.conceptHead { margin-bottom: 24px; }
+.conceptHead h1 { font-size: 30px; }
+.conceptMetrics { margin-bottom: 20px; }
+.conceptMetrics .metric { min-height: 136px; align-items: center; }
+.conceptMetrics .metric small.positive { color: #16834c; }
+.conceptMetrics .metric small.negative { color: #d83b3b; }
+.conceptDashboardGrid { display: grid; grid-template-columns: minmax(0, 2.7fr) minmax(300px, 1fr); gap: 18px; align-items: start; }
+.conceptMainColumn, .conceptRail { display: grid; gap: 18px; min-width: 0; }
+.conceptMainColumn .chartPanel { min-height: 350px; }
+.conceptMainColumn .chart { height: 278px; }
+.conceptMainColumn .studentsPanel { min-height: 284px; }
+.conceptRail .schedule { padding: 18px; }
+.conceptRail .panelTitle a { color: #1769e0; font-size: 11px; text-decoration: none; font-weight: 600; }
+.conceptRail .event { padding: 9px 0; }
+.conceptRail .event > div:last-child span { display: block; }
+.scheduleLink { display: block; text-align: center; color: #1769e0; text-decoration: none; font-size: 11px; font-weight: 600; padding-top: 10px; }
+.quickActions { padding: 16px; }
+.quickActionGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 14px; }
+.quickActionGrid a { min-height: 76px; border: 1px solid #dfe5ee; border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #233149; text-decoration: none; font-size: 11px; font-weight: 600; transition: border-color .15s ease, background .15s ease; }
+.quickActionGrid a:hover { border-color: #9ec2f7; background: #f6f9ff; }
+.quickActionGrid svg { width: 25px; color: #1769e0; }
+.quickActionGrid a:nth-child(2) svg { color: #16834c; }
+.quickActionGrid a:nth-child(3) svg { color: #d97706; }
+.conceptSidebarFoot { gap: 4px; }
+.conceptSidebarFoot a { color: #e1eafa; text-decoration: none; display: flex; align-items: center; gap: 13px; padding: 10px 0; font-size: 14px; font-weight: 550; }
+.conceptSidebarFoot a svg { width: 21px; }
+
+@media (max-width: 1100px) {
+  .conceptDashboardGrid { grid-template-columns: 1fr; }
+  .conceptRail { grid-template-columns: 1.4fr 1fr; }
+  .conceptRail .schedule { display: block; }
+}
+
+@media (max-width: 760px) {
+  .conceptHead h1 { font-size: 24px; }
+  .conceptMetrics .metric { min-height: 108px; }
+  .conceptRail { grid-template-columns: 1fr; }
+  .conceptMainColumn .chartPanel { min-height: 330px; }
+}

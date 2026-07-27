@@ -1,0 +1,2 @@
+-- Baseline marker for the existing GD School schema.
+-- The database tables predate Prisma migration tracking, so no SQL is required here.

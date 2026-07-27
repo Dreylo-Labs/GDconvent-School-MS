@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">G.D. Convent School</string>
+    <string name="title_activity_main">G.D. Convent School</string>
+    <string name="package_name">in.edu.gdconvent.parent</string>
+    <string name="custom_url_scheme">in.edu.gdconvent.parent</string>
+</resources>

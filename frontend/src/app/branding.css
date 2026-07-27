@@ -1,0 +1,9 @@
+.schoolBrand{gap:10px;padding-left:4px;padding-right:2px;font-size:13px;line-height:1.25}
+.schoolBrand img{width:50px;height:50px;object-fit:contain;flex:0 0 auto;filter:drop-shadow(0 3px 5px #0004)}
+.schoolBrand span{letter-spacing:-.01em}
+.schoolLoginBrand img{width:68px;height:68px;object-fit:contain;filter:drop-shadow(0 4px 8px #0b21452b)}
+.schoolLoginBrand strong{max-width:240px;font-size:17px;line-height:1.25}
+.login>aside{position:relative;isolation:isolate;background-color:#092955;background-image:linear-gradient(180deg,#061b3857 10%,#031126d9 100%),url("/gd-convent-campus.png");background-size:cover;background-position:center}
+.login>aside::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,#04152a26,#04152a08)}
+.login>aside blockquote,.login>aside p{text-shadow:0 2px 10px #000b}
+@media(max-width:760px){.schoolBrand img{width:44px;height:44px}}

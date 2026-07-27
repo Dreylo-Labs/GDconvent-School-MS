@@ -1,0 +1,11 @@
+.globalSearch{position:relative;width:min(620px,55vw)}
+.globalSearch>.search{width:100%}
+.headerPopover{position:absolute;top:calc(100% + 10px);z-index:80;border:1px solid var(--line);border-radius:11px;background:#fff;box-shadow:0 16px 40px #17345c24;overflow:hidden}
+.searchPopover{left:0;width:100%;min-width:360px}
+.headerResult{display:flex;flex-direction:column;gap:3px;padding:11px 14px;border-bottom:1px solid #edf0f5;color:var(--ink);text-decoration:none}
+.headerResult:last-child{border-bottom:0}.headerResult:hover{background:#f5f9ff}.headerResult strong{font-size:12px}.headerResult span{color:var(--muted);font-size:10px}.headerResult em{color:var(--blue);font-size:8px;font-style:normal;font-weight:700;text-transform:uppercase}
+.headerEmpty{padding:18px;color:var(--muted);font-size:11px;text-align:center}
+.notificationWrap{position:relative;margin-left:auto}.notificationButton{position:relative}.notificationDot{position:absolute;right:4px;top:3px;min-width:16px;height:16px;padding:0 4px;border:2px solid #fff;border-radius:9px;background:#e13d3d;color:#fff;font-size:8px;font-weight:700;line-height:12px}
+.notificationPopover{right:0;width:360px}.notificationHead{display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border-bottom:1px solid var(--line)}.notificationHead strong{font-size:12px}.notificationHead a{color:var(--blue);font-size:10px;text-decoration:none}
+.notificationItem{display:grid;grid-template-columns:8px 1fr;gap:9px;padding:12px 15px;border-bottom:1px solid #edf0f5;color:var(--ink);text-decoration:none}.notificationItem:hover{background:#f7faff}.notificationItem>i{width:7px;height:7px;margin-top:5px;border-radius:50%;background:#c9d3e1}.notificationItem.unread>i{background:var(--blue)}.notificationItem div{display:grid;gap:4px}.notificationItem strong{font-size:11px}.notificationItem span{color:#536075;font-size:9px;line-height:1.4}.notificationItem time{color:#8a96a8;font-size:8px}
+@media(max-width:760px){.globalSearch{width:100%}.searchPopover{min-width:0}.notificationPopover{position:fixed;left:12px;right:12px;top:70px;width:auto}.notificationWrap{margin-left:0}}

@@ -1,0 +1,56 @@
+.facilitiesHead { margin-bottom: 20px; }
+.facilitySummary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+.facilitySummary > div { display: flex; align-items: center; gap: 12px; background: white; border: 1px solid var(--line); border-radius: 11px; padding: 15px 18px; }
+.facilitySummary svg { width: 24px; color: var(--blue); }
+.facilitySummary span { display: grid; color: var(--muted); font-size: 11px; }
+.facilitySummary strong { color: var(--ink); font-size: 20px; line-height: 1.1; }
+.facilityPanel { overflow: hidden; min-height: 390px; }
+.facilityToolbar { display: flex; justify-content: space-between; gap: 20px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.facilityToolbar > input { width: 270px; height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; outline: 0; font-size: 12px; }
+.facilityTabs { display: flex; gap: 3px; background: #f1f4f8; border-radius: 8px; padding: 3px; }
+.facilityTabs button { border: 0; background: transparent; color: #607087; border-radius: 6px; padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.facilityTabs button.selected { color: #153961; background: white; box-shadow: 0 1px 4px #18213012; }
+.sectionBadge { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: #eaf2ff; color: var(--blue); font-weight: 700; }
+.rowIcon { border: 0; background: transparent; color: #65738a; padding: 5px; cursor: pointer; }
+.rowIcon svg { width: 17px; }
+.rowIcon.danger:hover { color: var(--red); }
+.roomGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 18px; }
+.roomCard { border: 1px solid var(--line); border-radius: 11px; padding: 16px; min-width: 0; }
+.roomCardTop { display: flex; justify-content: space-between; align-items: flex-start; }
+.roomGlyph { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 9px; background: #e9f2ff; color: var(--blue); }
+.roomGlyph.lab { background: #e8f6ed; color: #16834c; }
+.roomGlyph svg { width: 21px; }
+.roomActions { display: flex; }
+.roomActions button { border: 0; background: transparent; padding: 5px; color: #778397; cursor: pointer; }
+.roomActions svg { width: 16px; }
+.roomCard h3 { margin: 14px 0 3px; font-size: 14px; }
+.roomCard > p { margin: 0; color: var(--muted); font-size: 11px; }
+.roomCard dl { display: grid; gap: 7px; margin: 16px 0 0; padding-top: 13px; border-top: 1px solid #edf0f5; }
+.roomCard dl div { display: flex; justify-content: space-between; gap: 14px; font-size: 10px; }
+.roomCard dt { color: var(--muted); }
+.roomCard dd { margin: 0; color: #344258; text-align: right; }
+.dialogBackdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 20px; background: #07182e80; backdrop-filter: blur(2px); }
+.facilityDialog { width: min(560px, 100%); max-height: calc(100vh - 40px); overflow: auto; background: white; border-radius: 14px; box-shadow: 0 24px 80px #00152f40; }
+.dialogTitle { display: flex; justify-content: space-between; align-items: flex-start; padding: 20px 22px 17px; border-bottom: 1px solid var(--line); }
+.dialogTitle h2 { margin: 0 0 4px; font-size: 18px; }
+.dialogTitle p { margin: 0; font-size: 11px; color: var(--muted); }
+.dialogTitle button { border: 0; background: transparent; color: #607087; }
+.dialogTitle svg { width: 21px; }
+.facilityForm { display: grid; gap: 15px; padding: 20px 22px; }
+.facilityForm label { display: grid; gap: 6px; color: #344258; font-size: 11px; font-weight: 650; }
+.facilityForm input, .facilityForm select, .facilityForm textarea { width: 100%; border: 1px solid #d7dee9; border-radius: 8px; padding: 10px 11px; color: var(--ink); background: white; outline: 0; font-size: 12px; }
+.facilityForm input:focus, .facilityForm select:focus, .facilityForm textarea:focus { border-color: #82b2f3; box-shadow: 0 0 0 3px #1769e012; }
+.facilityForm small { color: var(--muted); font-weight: 400; }
+.formColumns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.dialogButtons { display: flex; justify-content: flex-end; gap: 9px; padding-top: 4px; }
+.dialogButtons > button:not(.primary) { border: 1px solid var(--line); background: white; color: #526074; border-radius: 8px; padding: 9px 14px; font-size: 12px; }
+.facilityError { margin-bottom: 14px; }
+
+@media (max-width: 1050px) { .roomGrid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 760px) {
+  .facilitySummary { grid-template-columns: repeat(2, 1fr); }
+  .facilityToolbar { align-items: stretch; flex-direction: column; }
+  .facilityToolbar > input { width: 100%; }
+  .roomGrid { grid-template-columns: 1fr; }
+  .formColumns { grid-template-columns: 1fr; }
+}

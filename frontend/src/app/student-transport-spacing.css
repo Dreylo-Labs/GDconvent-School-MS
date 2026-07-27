@@ -1,0 +1,11 @@
+.profileSection.full.studentTransportPanel,
+.profileSection.full.studentTransportEmpty {
+  padding: 20px;
+}
+
+@media (max-width: 700px) {
+  .profileSection.full.studentTransportPanel,
+  .profileSection.full.studentTransportEmpty {
+    padding: 16px;
+  }
+}
