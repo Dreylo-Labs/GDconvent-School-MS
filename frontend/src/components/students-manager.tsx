@@ -2,8 +2,9 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowPathIcon, EyeIcon, MagnifyingGlassIcon, PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, ArrowUpTrayIcon, EyeIcon, MagnifyingGlassIcon, PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { useAuth } from './auth-provider';
+import { StudentImportDialog } from './student-import-dialog';
 
 type SchoolClass = { id: string; name: string; section: string; _count: { students: number } };
 type StudentRow = { id: string; admissionNo: string; firstName: string; lastName: string; phone?: string; fatherName?: string; fatherPhone?: string; guardianName: string; guardianPhone: string; createdAt: string; class?: SchoolClass; billed?: number; collected?: number; outstanding?: number; advanceBalance?: number };
@@ -19,6 +20,7 @@ export function StudentsManager() {
   const [pagination, setPagination] = useState({ total: 0, pages: 1 });
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState(false);
+  const [importDialog, setImportDialog] = useState(false);
 
   async function loadStudents() {
     setLoading(true);
@@ -34,7 +36,7 @@ export function StudentsManager() {
   useEffect(() => { const timer = window.setTimeout(() => void loadStudents(), 250); return () => window.clearTimeout(timer); }, [query, classId, page, user?.role]);
 
   return <>
-    <div className="pageHead"><div><h1>{user?.role === 'ACCOUNTANT' ? 'Student Accounts' : 'Students'}</h1><p>{user?.role === 'ACCOUNTANT' ? 'Search students and review balances, advance credits, invoices, and complete payment history.' : 'Manage enrollment, profiles, guardians, academics, fees, and promotions.'}</p></div>{user?.role === 'ADMIN' && <button className="primary" onClick={() => setDialog(true)}><PlusIcon />Add student</button>}</div>
+    <div className="pageHead"><div><h1>{user?.role === 'ACCOUNTANT' ? 'Student Accounts' : 'Students'}</h1><p>{user?.role === 'ACCOUNTANT' ? 'Search students and review balances, advance credits, invoices, and complete payment history.' : 'Manage enrollment, profiles, parents, academics, fees, and promotions.'}</p></div>{user?.role === 'ADMIN' && <div className="studentHeadActions"><button onClick={() => setImportDialog(true)}><ArrowUpTrayIcon/>Import Excel</button><button className="primary" onClick={() => setDialog(true)}><PlusIcon />Add student</button></div>}</div>
     <section className="studentSummary"><div><strong>{pagination.total}</strong><span>Total students</span></div><div><strong>{classes.length}</strong><span>Active classes</span></div><div><strong>{classes.reduce((sum,item)=>sum+item._count.students,0)}</strong><span>Assigned to classes</span></div></section>
     <section className="panel resource studentsResource">
       <div className="toolbar studentToolbar"><label className="search compact"><MagnifyingGlassIcon /><input value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="Search name, admission no. or guardian…" /></label><select value={classId} onChange={event => { setClassId(event.target.value); setPage(1); }}><option value="">All classes</option>{classes.map(item => <option key={item.id} value={item.id}>{classLabel(item)}</option>)}</select></div>
@@ -42,6 +44,7 @@ export function StudentsManager() {
       <div className="pagination"><span>Showing {students.length} of {pagination.total} students</span><div><button disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Previous</button><button className="current">{page}</button><button disabled={page >= pagination.pages} onClick={() => setPage(value => value + 1)}>Next</button></div></div>
     </section>
     {dialog && <StudentDialog classes={classes} onClose={() => setDialog(false)} onCreated={async () => { setDialog(false); setPage(1); await loadStudents(); }} />}
+    {importDialog&&<StudentImportDialog onClose={()=>setImportDialog(false)} onImported={async()=>{setPage(1);await Promise.all([loadStudents(),fetch('/api/proxy/classes').then(response=>response.json()).then(setClasses)])}}/>}
   </>;
 }
 

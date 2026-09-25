@@ -2,12 +2,15 @@ import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import type { Prisma } from '@prisma/client';
+import ExcelJS from 'exceljs';
+import multer from 'multer';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { getDb } from '../config/db.js';
 import { authorize, type AuthRequest } from '../middleware/auth.js';
 import { academicYearFor, billFamilyFeePlan, billStudentForClass, runMonthlyBilling, schoolDate } from '../services/fee-billing.js';
 
 export const resourceRouter = Router();
+const studentImportUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
 const classDisplayName = (item: { name: string; section: string }) => item.section ? `${item.name}-${item.section}` : item.name;
 const attendanceDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const todayInSchoolTimezone = () => new Intl.DateTimeFormat('en-CA', {
@@ -165,6 +168,69 @@ resourceRouter.post('/students', authorize('ADMIN'), async (req: AuthRequest, re
   } catch {
     res.status(409).json({ message: 'This admission number is already in use. Choose another number or generate the next value.' });
   }
+});
+
+const importHeaders = ['Admission Year','Admission Number','First Name','Last Name','Date of Birth','Gender','Student Phone','Address','Class','Section','Father Name','Father Number','Mother Name','Mother Number','Fee Exempt','Fee Exempt Reason'];
+const importText = (value: ExcelJS.CellValue) => {
+  if (value == null) return '';
+  if (typeof value === 'object' && 'text' in value) return String(value.text).trim();
+  if (typeof value === 'object' && 'result' in value) return String(value.result ?? '').trim();
+  return String(value).trim();
+};
+const importDate = (value: ExcelJS.CellValue) => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === 'number') return new Date(Date.UTC(1899, 11, 30 + value));
+  const text = importText(value);
+  const indian = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  const result = indian ? new Date(Date.UTC(Number(indian[3]), Number(indian[2]) - 1, Number(indian[1]))) : new Date(text);
+  return Number.isNaN(result.getTime()) ? null : result;
+};
+
+resourceRouter.get('/students-import/template', authorize('ADMIN'), async (_req, res) => {
+  const workbook = new ExcelJS.Workbook(); workbook.creator = 'G.D. Convent Sr Sec School'; workbook.created = new Date();
+  const sheet = workbook.addWorksheet('Students', { views: [{ state: 'frozen', ySplit: 1 }] });
+  sheet.columns = importHeaders.map((header, index) => ({ header, key: `c${index}`, width: [16,20,16,16,16,13,17,28,14,12,20,17,20,17,13,28][index] }));
+  sheet.getRow(1).height = 28; sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }; sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1457B8' } }; sheet.getRow(1).alignment = { vertical: 'middle' };
+  sheet.addRow([2026,'GD-2026-001','Aarav','Sharma',new Date(Date.UTC(2015,5,12)),'MALE','9876543210','12 Main Road','Class 6','A','Rajesh Sharma','9876543211','Sunita Sharma','9876543212','NO','']);
+  sheet.getCell('E2').numFmt = 'dd/mm/yyyy'; sheet.autoFilter = 'A1:P2';
+  for (let row = 2; row <= 1001; row += 1) {
+    sheet.getCell(`F${row}`).dataValidation = { type: 'list', allowBlank: false, formulae: ['"MALE,FEMALE,OTHER"'] };
+    sheet.getCell(`O${row}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['"YES,NO"'] };
+    sheet.getCell(`E${row}`).numFmt = 'dd/mm/yyyy';
+  }
+  const instructions = workbook.addWorksheet('Instructions'); instructions.columns = [{ width: 24 }, { width: 88 }];
+  instructions.addRows([['Field','Guidance'],['Required columns','Admission Year, First Name, Last Name, Date of Birth, Gender, Class, Father Name/Number, Mother Name/Number.'],['Admission Number','Optional. Leave blank to generate the next GD-YEAR-001 style number automatically.'],['Class and Section','Missing class/section combinations are created automatically. Section may be blank.'],['Date of Birth','Use a real Excel date or DD/MM/YYYY.'],['Gender','MALE, FEMALE, or OTHER.'],['Phone numbers','Use a valid 10-digit Indian mobile number. Student Phone is optional.'],['Fee Exempt','YES or NO. Add a reason when YES.'],['Important','Do not rename columns. Remove the sample row before importing your real data.']]);
+  instructions.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }; instructions.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1457B8' } };
+  const buffer = await workbook.xlsx.writeBuffer(); res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); res.setHeader('Content-Disposition','attachment; filename="GD-School-Student-Import-Template.xlsx"'); res.send(Buffer.from(buffer));
+});
+
+resourceRouter.post('/students-import', authorize('ADMIN'), studentImportUpload.single('file'), async (req: AuthRequest, res) => {
+  if (!req.file) return res.status(400).json({ message: 'Choose an Excel .xlsx file.' });
+  if (!req.file.originalname.toLowerCase().endsWith('.xlsx')) return res.status(400).json({ message: 'Only .xlsx Excel files are supported.' });
+  const workbook = new ExcelJS.Workbook();
+  try { await workbook.xlsx.load(req.file.buffer as unknown as ExcelJS.Buffer); } catch { return res.status(400).json({ message: 'The workbook could not be read. Download the sample and check the file format.' }); }
+  const sheet = workbook.getWorksheet('Students') ?? workbook.worksheets[0]; if (!sheet) return res.status(400).json({ message: 'The workbook has no worksheet.' });
+  const positions = new Map<string,number>(); sheet.getRow(1).eachCell((cell,column) => positions.set(importText(cell.value).toLowerCase(),column));
+  const required = ['admission year','first name','last name','date of birth','gender','class','father name','father number','mother name','mother number'];
+  const missing = required.filter(header => !positions.has(header)); if (missing.length) return res.status(400).json({ message: `Missing required columns: ${missing.join(', ')}` });
+  const value = (row: ExcelJS.Row, header: string) => row.getCell(positions.get(header.toLowerCase()) ?? 0).value;
+  const parsedRows: { row:number; data?: Record<string,unknown>; errors:string[] }[] = [];
+  sheet.eachRow((row,rowNumber) => {
+    let hasValue=false; row.eachCell(cell=>{if(importText(cell.value))hasValue=true});
+    if (rowNumber === 1 || !hasValue) return;
+    const errors:string[]=[]; const year=Number(importText(value(row,'Admission Year'))); const dob=importDate(value(row,'Date of Birth')); const gender=importText(value(row,'Gender')).toUpperCase();
+    const firstName=importText(value(row,'First Name'));const lastName=importText(value(row,'Last Name'));const className=importText(value(row,'Class'));const section=importText(value(row,'Section'));const fatherName=importText(value(row,'Father Name'));const motherName=importText(value(row,'Mother Name'));const fatherPhone=normalizeIndianPhone(importText(value(row,'Father Number')));const motherPhone=normalizeIndianPhone(importText(value(row,'Mother Number')));const rawStudentPhone=importText(value(row,'Student Phone'));const studentPhone=rawStudentPhone?normalizeIndianPhone(rawStudentPhone):null;
+    if(!Number.isInteger(year)||year<1900||year>2200)errors.push('Invalid admission year');if(!firstName)errors.push('First name is required');if(!lastName)errors.push('Last name is required');if(!dob)errors.push('Invalid date of birth');if(!['MALE','FEMALE','OTHER'].includes(gender))errors.push('Gender must be MALE, FEMALE, or OTHER');if(!className)errors.push('Class is required');if(!fatherName||!fatherPhone)errors.push('Valid father name and number are required');if(!motherName||!motherPhone)errors.push('Valid mother name and number are required');if(rawStudentPhone&&!studentPhone)errors.push('Invalid student phone');
+    parsedRows.push({row:rowNumber,errors,data:errors.length?undefined:{year,admissionNo:importText(value(row,'Admission Number')),firstName,lastName,dateOfBirth:dob!,gender,phone:studentPhone,address:importText(value(row,'Address'))||undefined,className,section,fatherName,fatherPhone,motherName,motherPhone,feeExempt:['YES','Y','TRUE','1'].includes(importText(value(row,'Fee Exempt')).toUpperCase()),feeExemptReason:importText(value(row,'Fee Exempt Reason'))||undefined}});
+  });
+  if (!parsedRows.length) return res.status(400).json({ message: 'No student rows were found.' });
+  const seen=new Set<string>();for(const item of parsedRows){const admission=String(item.data?.admissionNo||'').toUpperCase();if(admission&&seen.has(admission)){item.errors.push('Duplicate admission number in workbook');item.data=undefined}else if(admission)seen.add(admission)}
+  const suppliedAdmissions=[...seen];if(suppliedAdmissions.length){const existing=await getDb().student.findMany({where:{admissionNo:{in:suppliedAdmissions,mode:'insensitive'}},select:{admissionNo:true}});const existingSet=new Set(existing.map(item=>item.admissionNo.toUpperCase()));for(const item of parsedRows){if(item.data&&existingSet.has(String(item.data.admissionNo).toUpperCase())){item.errors.push('Admission number already exists');item.data=undefined}}}
+  if (String(req.query.preview) === 'true') return res.json({ total: parsedRows.length, valid: parsedRows.filter(item=>item.data).length, invalid: parsedRows.filter(item=>!item.data).length, rows: parsedRows.map(item=>({row:item.row,errors:item.errors,...item.data})) });
+  if (parsedRows.some(item=>!item.data)) return res.status(400).json({ message:'Fix validation errors before importing.',rows:parsedRows.filter(item=>!item.data) });
+  const placeholderPassword=await bcrypt.hash(`OTP-${crypto.randomUUID()}`,12);const classCache=new Map<string,string>();const yearSequence=new Map<number,number>();const imported:string[]=[];const failed:{row:number;message:string}[]=[];let classesCreated=0;
+  for(const item of parsedRows){const data=item.data!;try{await getDb().$transaction(async tx=>{const className=String(data.className);const section=String(data.section||'');const classKey=`${className.toLowerCase()}|${section.toLowerCase()}`;let classId=classCache.get(classKey);if(!classId){let schoolClass=await tx.schoolClass.findFirst({where:{name:{equals:className,mode:'insensitive'},section:{equals:section,mode:'insensitive'}}});if(!schoolClass){schoolClass=await tx.schoolClass.create({data:{name:className,section}});classesCreated+=1}classId=schoolClass.id;classCache.set(classKey,classId)}let admissionNo=String(data.admissionNo||'').trim();const year=Number(data.year);if(!admissionNo){let next=yearSequence.get(year);if(next==null){const prefix=`GD-${year}-`;const existing=await tx.student.findMany({where:{admissionNo:{startsWith:prefix}},select:{admissionNo:true}});next=existing.reduce((max,student)=>Math.max(max,Number(student.admissionNo.slice(prefix.length))||0),0)}next+=1;yearSequence.set(year,next);admissionNo=`GD-${year}-${String(next).padStart(3,'0')}`}const email=`student.${admissionNo.toLowerCase().replace(/[^a-z0-9]+/g,'.')}@login.gdconvent.local`;const user=await tx.user.create({data:{email,name:`${data.firstName} ${data.lastName}`,password:placeholderPassword,role:'STUDENT'}});const student=await tx.student.create({data:{admissionNo,firstName:String(data.firstName),lastName:String(data.lastName),dateOfBirth:data.dateOfBirth as Date,gender:data.gender as 'MALE'|'FEMALE'|'OTHER',phone:data.phone as string|undefined,address:data.address as string|undefined,classId,fatherName:String(data.fatherName),fatherPhone:String(data.fatherPhone),motherName:String(data.motherName),motherPhone:String(data.motherPhone),guardianName:String(data.fatherName),guardianPhone:String(data.fatherPhone),feeExempt:Boolean(data.feeExempt),feeExemptReason:data.feeExemptReason as string|undefined,feeExemptFrom:data.feeExempt?schoolDate():undefined,userId:user.id},include:{class:true}});await linkParent(tx,student.id,String(data.fatherName),String(data.fatherPhone),'Father',true,placeholderPassword);await linkParent(tx,student.id,String(data.motherName),String(data.motherPhone),'Mother',false,placeholderPassword);if(student.class)await billStudentForClass(tx,student.id,student.class.name,{onAdmission:true});await tx.auditLog.create({data:{actorId:req.user!.id,action:'IMPORT',entityType:'Student',entityId:student.id,metadata:{row:item.row,admissionNo,classCreatedFromImport:true}}});imported.push(student.id)},{timeout:30_000})}catch(error){failed.push({row:item.row,message:error instanceof Error&&error.message.includes('Unique constraint')?'Admission number or login already exists.':'Student could not be imported.'})}}
+  res.status(failed.length?207:201).json({total:parsedRows.length,imported:imported.length,failed:failed.length,classesCreated,failures:failed});
 });
 resourceRouter.get('/students/:id', authorize('ADMIN', 'TEACHER'), async (req, res) => { const item = await getDb().student.findUnique({ where: { id: String(req.params.id) }, include: { class: { include: { room: true, teacher: true } }, attendance: { orderBy: { date: 'desc' } }, fees: { include: { payments: true, concessions: true }, orderBy: { dueDate: 'desc' } }, scholarships: { orderBy: { startsAt: 'desc' } }, familyMemberships: { include: { familyFeePlan: { include: { members: { include: { student: { select: { id: true, admissionNo: true, firstName: true, lastName: true } } } } } } }, orderBy: { joinedAt: 'desc' } }, ledgerEntries: { where: { referenceType: { in: ['ADVANCE_CREDIT','ADVANCE_ALLOCATION','ADVANCE_REFUND'] } }, orderBy: { occurredAt: 'desc' } }, results: { include: { exam: true }, orderBy: { exam: { date: 'desc' } } }, parents: { include: { parent: { include: { user: { select: { name: true, email: true } } } } } }, behaviorNotes: { include: { teacher: true }, orderBy: { occurredAt: 'desc' } }, promotions: { orderBy: { promotedAt: 'desc' } }, transportAssignment: { include: { stop: true, route: { include: { vehicle: true, stops: { orderBy: { sequence: 'asc' } } } } } } } }); if (!item) return res.status(404).json({ message: 'Student not found' }); const advance = item.ledgerEntries.reduce((sum, entry) => sum + Number(entry.amount), 0); const feeSummary = item.fees.reduce((summary, fee) => ({ billed: summary.billed + Number(fee.amount), paid: summary.paid + Number(fee.paidAmount), outstanding: summary.outstanding + Math.max(0, Number(fee.amount) - Number(fee.paidAmount) - fee.concessions.reduce((total, concession) => total + Number(concession.amount), 0)), advance: summary.advance }), { billed: 0, paid: 0, outstanding: 0, advance }); const attendanceSummary = item.attendance.reduce((summary, record) => ({ ...summary, total: summary.total + 1, [record.status.toLowerCase()]: summary[record.status.toLowerCase() as 'present'] + 1 }), { total: 0, present: 0, absent: 0, late: 0, excused: 0 }); res.json({ ...item, summaries: { fees: feeSummary, attendance: attendanceSummary } }); });
 resourceRouter.put('/students/:id', authorize('ADMIN'), async (req: AuthRequest, res) => {

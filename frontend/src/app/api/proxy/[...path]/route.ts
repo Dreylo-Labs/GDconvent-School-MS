@@ -11,9 +11,10 @@ async function forward(request: Request, context: { params: Promise<{ path: stri
   const source = new URL(request.url);
   source.searchParams.forEach((value, key) => target.searchParams.set(key, value));
   const hasBody = !['GET', 'HEAD'].includes(request.method);
-  const response = await fetch(target, { method: request.method, headers: { Authorization: `Bearer ${token}`, ...(hasBody ? { 'Content-Type': request.headers.get('content-type') ?? 'application/json' } : {}) }, body: hasBody ? await request.text() : undefined, cache: 'no-store' });
-  const contentType = response.headers.get('content-type') ?? 'application/json';
-  const headers: Record<string, string> = { 'Content-Type': contentType };
+  const contentType = request.headers.get('content-type') ?? 'application/json';
+  const response = await fetch(target, { method: request.method, headers: { Authorization: `Bearer ${token}`, ...(hasBody ? { 'Content-Type': contentType } : {}) }, body: hasBody ? (contentType.includes('multipart/form-data') ? await request.arrayBuffer() : await request.text()) : undefined, cache: 'no-store' });
+  const responseContentType = response.headers.get('content-type') ?? 'application/json';
+  const headers: Record<string, string> = { 'Content-Type': responseContentType };
   const disposition = response.headers.get('content-disposition');
   if (disposition) headers['Content-Disposition'] = disposition;
   const result = new NextResponse(await response.arrayBuffer(), { status: response.status, headers });
