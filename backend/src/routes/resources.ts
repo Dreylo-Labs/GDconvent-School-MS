@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
+import type { Prisma } from '@prisma/client';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { getDb } from '../config/db.js';
 import { authorize, type AuthRequest } from '../middleware/auth.js';
-import { academicYearFor, billStudentForClass, runMonthlyBilling, schoolDate } from '../services/fee-billing.js';
+import { academicYearFor, billFamilyFeePlan, billStudentForClass, runMonthlyBilling, schoolDate } from '../services/fee-billing.js';
 
 export const resourceRouter = Router();
 const classDisplayName = (item: { name: string; section: string }) => item.section ? `${item.name}-${item.section}` : item.name;
@@ -22,7 +23,27 @@ const normalizeIndianPhone = (value: string) => {
 async function teacherCanAccessClass(userId: string, classId: string) {
   return Boolean(await getDb().schoolClass.findFirst({ where: { id: classId, teacher: { userId } }, select: { id: true } }));
 }
-const studentSchema = z.object({ admissionNo: z.string().min(1), firstName: z.string().min(1), lastName: z.string().min(1), email: z.string().email().optional(), phone: z.string().optional(), dateOfBirth: z.coerce.date(), gender: z.enum(['MALE','FEMALE','OTHER']), address: z.string().optional(), guardianName: z.string().min(1), guardianPhone: z.string().min(1), classId: z.string().optional() });
+const studentSchema = z.object({
+  admissionNo: z.string().min(1), firstName: z.string().min(1), lastName: z.string().min(1), phone: z.string().optional(),
+  dateOfBirth: z.coerce.date(), gender: z.enum(['MALE','FEMALE','OTHER']), address: z.string().optional(),
+  fatherName: z.string().min(1), fatherPhone: z.string().min(1), motherName: z.string().min(1), motherPhone: z.string().min(1),
+  classId: z.string().optional(), feeExempt: z.boolean().optional(), feeExemptReason: z.string().max(300).optional(),
+  feeExemptFrom: z.coerce.date().optional(), feeExemptTo: z.coerce.date().optional(),
+});
+const scholarshipSchema = z.object({ name: z.string().trim().min(2).max(100), kind: z.enum(['PERCENTAGE','FIXED']), value: z.coerce.number().positive(), reason: z.string().trim().min(2).max(500), startsAt: z.coerce.date(), endsAt: z.coerce.date().optional() }).refine(value => value.kind !== 'PERCENTAGE' || value.value <= 100, { message: 'Percentage cannot exceed 100.', path: ['value'] });
+const familyPlanSchema = z.object({ name: z.string().trim().min(2).max(120), academicYear: z.string().regex(/^\d{4}-\d{2}$/), amount: z.coerce.number().positive(), frequency: z.enum(['SEMESTERLY','ANNUAL']).default('SEMESTERLY'), dueDay: z.coerce.number().int().min(1).max(28).default(10), startsAt: z.coerce.date(), endsAt: z.coerce.date().optional(), reason: z.string().max(500).optional(), billingStudentId: z.string().min(1), studentIds: z.array(z.string().min(1)).min(2) });
+
+async function linkParent(tx: Prisma.TransactionClient, studentId: string, name: string, phone: string, relationship: 'Father' | 'Mother', isPrimary: boolean, password: string) {
+  let parent = await tx.parentProfile.findFirst({ where: { phone } });
+  if (!parent) {
+    const email = `parent.${phone.slice(-10)}@login.gdconvent.local`;
+    const user = await tx.user.upsert({ where: { email }, update: { isActive: true, name }, create: { email, name, password, role: 'PARENT' } });
+    parent = await tx.parentProfile.upsert({ where: { userId: user.id }, update: { phone }, create: { userId: user.id, phone } });
+  } else await tx.user.update({ where: { id: parent.userId }, data: { name, isActive: true } });
+  const previous = await tx.parentStudent.findFirst({ where: { studentId, relationship } });
+  await tx.parentStudent.upsert({ where: { parentId_studentId: { parentId: parent.id, studentId } }, update: { relationship, isPrimary }, create: { parentId: parent.id, studentId, relationship, isPrimary } });
+  if (previous && previous.parentId !== parent.id) await tx.parentStudent.delete({ where: { parentId_studentId: { parentId: previous.parentId, studentId } } });
+}
 const roomSchema = z.object({ name: z.string().min(1).max(100), type: z.string().min(1).max(60), capacity: z.coerce.number().int().positive().optional(), building: z.string().max(80).optional(), floor: z.string().max(40).optional(), notes: z.string().max(500).optional(), isActive: z.boolean().optional() });
 const classSchema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -116,30 +137,26 @@ resourceRouter.get('/students', authorize('ADMIN', 'TEACHER'), async (req, res) 
   const q = String(req.query.q ?? '');
   const classId = String(req.query.classId ?? '');
   const page = Math.max(1, Number(req.query.page ?? 1)); const limit = Math.min(100, Number(req.query.limit ?? 20));
-  const where = { ...(classId ? { classId } : {}), ...(q ? { OR: [{ firstName: { contains: q, mode: 'insensitive' as const } }, { lastName: { contains: q, mode: 'insensitive' as const } }, { admissionNo: { contains: q, mode: 'insensitive' as const } }, { guardianName: { contains: q, mode: 'insensitive' as const } }] } : {}) };
+  const where = { ...(classId ? { classId } : {}), ...(q ? { OR: [{ firstName: { contains: q, mode: 'insensitive' as const } }, { lastName: { contains: q, mode: 'insensitive' as const } }, { admissionNo: { contains: q, mode: 'insensitive' as const } }, { fatherName: { contains: q, mode: 'insensitive' as const } }, { motherName: { contains: q, mode: 'insensitive' as const } }, { fatherPhone: { contains: q } }, { motherPhone: { contains: q } }, { guardianName: { contains: q, mode: 'insensitive' as const } }] } : {}) };
   const [data, total] = await Promise.all([getDb().student.findMany({ where, include: { class: true }, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: 'desc' } }), getDb().student.count({ where })]);
   res.json({ data, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 });
 resourceRouter.post('/students', authorize('ADMIN'), async (req: AuthRequest, res) => {
   const p = studentSchema.safeParse(req.body);
   if (!p.success) return res.status(400).json(p.error.flatten());
-  const guardianPhone = normalizeIndianPhone(p.data.guardianPhone);
+  const fatherPhone = normalizeIndianPhone(p.data.fatherPhone);
+  const motherPhone = normalizeIndianPhone(p.data.motherPhone);
   const studentPhone = p.data.phone ? normalizeIndianPhone(p.data.phone) : null;
-  if (!guardianPhone) return res.status(400).json({ message: 'Enter a valid 10-digit Indian guardian mobile number.' });
+  if (!fatherPhone || !motherPhone) return res.status(400).json({ message: 'Enter valid 10-digit Indian mobile numbers for both parents.' });
   if (p.data.phone && !studentPhone) return res.status(400).json({ message: 'Enter a valid 10-digit Indian student mobile number.' });
   try {
     const placeholderPassword = await bcrypt.hash(`OTP-${crypto.randomUUID()}`, 12);
     const item = await getDb().$transaction(async tx => {
       const studentEmail = `student.${p.data.admissionNo.toLowerCase().replace(/[^a-z0-9]+/g, '.')}@login.gdconvent.local`;
       const studentUser = await tx.user.create({ data: { email: studentEmail, name: `${p.data.firstName} ${p.data.lastName}`, password: placeholderPassword, role: 'STUDENT' } });
-      const created = await tx.student.create({ data: { ...p.data, guardianPhone, phone: studentPhone ?? undefined, userId: studentUser.id }, include: { class: true } });
-      let parent = await tx.parentProfile.findFirst({ where: { phone: guardianPhone } });
-      if (!parent) {
-        const parentEmail = `parent.${guardianPhone.slice(-10)}@login.gdconvent.local`;
-        const parentUser = await tx.user.upsert({ where: { email: parentEmail }, update: { isActive: true, name: p.data.guardianName }, create: { email: parentEmail, name: p.data.guardianName, password: placeholderPassword, role: 'PARENT' } });
-        parent = await tx.parentProfile.upsert({ where: { userId: parentUser.id }, update: { phone: guardianPhone }, create: { userId: parentUser.id, phone: guardianPhone } });
-      }
-      await tx.parentStudent.upsert({ where: { parentId_studentId: { parentId: parent.id, studentId: created.id } }, update: {}, create: { parentId: parent.id, studentId: created.id, relationship: 'Guardian', isPrimary: true } });
+      const created = await tx.student.create({ data: { ...p.data, guardianName: p.data.fatherName, guardianPhone: fatherPhone, fatherPhone, motherPhone, phone: studentPhone ?? undefined, userId: studentUser.id }, include: { class: true } });
+      await linkParent(tx, created.id, p.data.fatherName, fatherPhone, 'Father', true, placeholderPassword);
+      await linkParent(tx, created.id, p.data.motherName, motherPhone, 'Mother', false, placeholderPassword);
       if (created.class) await billStudentForClass(tx, created.id, created.class.name, { onAdmission: true });
       await tx.auditLog.create({ data: { actorId: req.user!.id, action: 'CREATE', entityType: 'Student', entityId: created.id, metadata: { admissionNo: created.admissionNo, className: created.class?.name, feesStarted: Boolean(created.class), guardianAccountLinked: true, studentOtpLoginCreated: true } } });
       return created;
@@ -149,42 +166,75 @@ resourceRouter.post('/students', authorize('ADMIN'), async (req: AuthRequest, re
     res.status(409).json({ message: 'This admission number is already in use. Choose another number or generate the next value.' });
   }
 });
-resourceRouter.get('/students/:id', authorize('ADMIN', 'TEACHER'), async (req, res) => { const item = await getDb().student.findUnique({ where: { id: String(req.params.id) }, include: { class: { include: { room: true, teacher: true } }, attendance: { orderBy: { date: 'desc' } }, fees: { include: { payments: true, concessions: true }, orderBy: { dueDate: 'desc' } }, ledgerEntries: { where: { referenceType: { in: ['ADVANCE_CREDIT','ADVANCE_ALLOCATION','ADVANCE_REFUND'] } }, orderBy: { occurredAt: 'desc' } }, results: { include: { exam: true }, orderBy: { exam: { date: 'desc' } } }, parents: { include: { parent: { include: { user: { select: { name: true, email: true } } } } } }, behaviorNotes: { include: { teacher: true }, orderBy: { occurredAt: 'desc' } }, promotions: { orderBy: { promotedAt: 'desc' } }, transportAssignment: { include: { stop: true, route: { include: { vehicle: true, stops: { orderBy: { sequence: 'asc' } } } } } } } }); if (!item) return res.status(404).json({ message: 'Student not found' }); const advance = item.ledgerEntries.reduce((sum, entry) => sum + Number(entry.amount), 0); const feeSummary = item.fees.reduce((summary, fee) => ({ billed: summary.billed + Number(fee.amount), paid: summary.paid + Number(fee.paidAmount), outstanding: summary.outstanding + Math.max(0, Number(fee.amount) - Number(fee.paidAmount) - fee.concessions.reduce((total, concession) => total + Number(concession.amount), 0)), advance: summary.advance }), { billed: 0, paid: 0, outstanding: 0, advance }); const attendanceSummary = item.attendance.reduce((summary, record) => ({ ...summary, total: summary.total + 1, [record.status.toLowerCase()]: summary[record.status.toLowerCase() as 'present'] + 1 }), { total: 0, present: 0, absent: 0, late: 0, excused: 0 }); res.json({ ...item, summaries: { fees: feeSummary, attendance: attendanceSummary } }); });
+resourceRouter.get('/students/:id', authorize('ADMIN', 'TEACHER'), async (req, res) => { const item = await getDb().student.findUnique({ where: { id: String(req.params.id) }, include: { class: { include: { room: true, teacher: true } }, attendance: { orderBy: { date: 'desc' } }, fees: { include: { payments: true, concessions: true }, orderBy: { dueDate: 'desc' } }, scholarships: { orderBy: { startsAt: 'desc' } }, familyMemberships: { include: { familyFeePlan: { include: { members: { include: { student: { select: { id: true, admissionNo: true, firstName: true, lastName: true } } } } } } }, orderBy: { joinedAt: 'desc' } }, ledgerEntries: { where: { referenceType: { in: ['ADVANCE_CREDIT','ADVANCE_ALLOCATION','ADVANCE_REFUND'] } }, orderBy: { occurredAt: 'desc' } }, results: { include: { exam: true }, orderBy: { exam: { date: 'desc' } } }, parents: { include: { parent: { include: { user: { select: { name: true, email: true } } } } } }, behaviorNotes: { include: { teacher: true }, orderBy: { occurredAt: 'desc' } }, promotions: { orderBy: { promotedAt: 'desc' } }, transportAssignment: { include: { stop: true, route: { include: { vehicle: true, stops: { orderBy: { sequence: 'asc' } } } } } } } }); if (!item) return res.status(404).json({ message: 'Student not found' }); const advance = item.ledgerEntries.reduce((sum, entry) => sum + Number(entry.amount), 0); const feeSummary = item.fees.reduce((summary, fee) => ({ billed: summary.billed + Number(fee.amount), paid: summary.paid + Number(fee.paidAmount), outstanding: summary.outstanding + Math.max(0, Number(fee.amount) - Number(fee.paidAmount) - fee.concessions.reduce((total, concession) => total + Number(concession.amount), 0)), advance: summary.advance }), { billed: 0, paid: 0, outstanding: 0, advance }); const attendanceSummary = item.attendance.reduce((summary, record) => ({ ...summary, total: summary.total + 1, [record.status.toLowerCase()]: summary[record.status.toLowerCase() as 'present'] + 1 }), { total: 0, present: 0, absent: 0, late: 0, excused: 0 }); res.json({ ...item, summaries: { fees: feeSummary, attendance: attendanceSummary } }); });
 resourceRouter.put('/students/:id', authorize('ADMIN'), async (req: AuthRequest, res) => {
   const p = studentSchema.partial().safeParse(req.body);
   if (!p.success) return res.status(400).json(p.error.flatten());
-  const normalizedGuardian = p.data.guardianPhone ? normalizeIndianPhone(p.data.guardianPhone) : undefined;
+  const normalizedFather = p.data.fatherPhone ? normalizeIndianPhone(p.data.fatherPhone) : undefined;
+  const normalizedMother = p.data.motherPhone ? normalizeIndianPhone(p.data.motherPhone) : undefined;
   const normalizedStudent = p.data.phone ? normalizeIndianPhone(p.data.phone) : undefined;
-  if (p.data.guardianPhone && !normalizedGuardian) return res.status(400).json({ message: 'Enter a valid 10-digit Indian guardian mobile number.' });
+  if ((p.data.fatherPhone && !normalizedFather) || (p.data.motherPhone && !normalizedMother)) return res.status(400).json({ message: 'Enter valid 10-digit Indian parent mobile numbers.' });
   if (p.data.phone && !normalizedStudent) return res.status(400).json({ message: 'Enter a valid 10-digit Indian student mobile number.' });
   const placeholderPassword = await bcrypt.hash(`OTP-${crypto.randomUUID()}`, 12);
   const item = await getDb().$transaction(async tx => {
-    const updated = await tx.student.update({ where: { id: String(req.params.id) }, data: { ...p.data, ...(normalizedGuardian ? { guardianPhone: normalizedGuardian } : {}), ...(normalizedStudent ? { phone: normalizedStudent } : {}) }, include: { class: true } });
-    if (normalizedGuardian) {
-      const currentPrimary = await tx.parentStudent.findFirst({ where: { studentId: updated.id, isPrimary: true }, include: { parent: true } });
-      let parent = await tx.parentProfile.findFirst({ where: { phone: normalizedGuardian } });
-      if (!parent) {
-        if (currentPrimary) {
-          parent = await tx.parentProfile.update({ where: { id: currentPrimary.parentId }, data: { phone: normalizedGuardian } });
-          await tx.user.update({ where: { id: parent.userId }, data: { name: updated.guardianName, isActive: true } });
-        } else {
-          const email = `parent.${normalizedGuardian.slice(-10)}@login.gdconvent.local`;
-          const parentUser = await tx.user.upsert({ where: { email }, update: { isActive: true, name: updated.guardianName }, create: { email, name: updated.guardianName, password: placeholderPassword, role: 'PARENT' } });
-          parent = await tx.parentProfile.upsert({ where: { userId: parentUser.id }, update: { phone: normalizedGuardian }, create: { userId: parentUser.id, phone: normalizedGuardian } });
-        }
-      } else {
-        await tx.user.update({ where: { id: parent.userId }, data: { name: updated.guardianName, isActive: true } });
-      }
-      await tx.parentStudent.upsert({ where: { parentId_studentId: { parentId: parent.id, studentId: updated.id } }, update: {}, create: { parentId: parent.id, studentId: updated.id, relationship: 'Guardian', isPrimary: true } });
-      if (currentPrimary && currentPrimary.parentId !== parent.id) await tx.parentStudent.delete({ where: { parentId_studentId: { parentId: currentPrimary.parentId, studentId: updated.id } } });
-    }
+    const updated = await tx.student.update({ where: { id: String(req.params.id) }, data: { ...p.data, ...(normalizedFather ? { fatherPhone: normalizedFather, guardianPhone: normalizedFather } : {}), ...(p.data.fatherName ? { guardianName: p.data.fatherName } : {}), ...(normalizedMother ? { motherPhone: normalizedMother } : {}), ...(normalizedStudent ? { phone: normalizedStudent } : {}) }, include: { class: true } });
+    if (normalizedFather && updated.fatherName) await linkParent(tx, updated.id, updated.fatherName, normalizedFather, 'Father', true, placeholderPassword);
+    if (normalizedMother && updated.motherName) await linkParent(tx, updated.id, updated.motherName, normalizedMother, 'Mother', false, placeholderPassword);
     if (p.data.classId && updated.class) await billStudentForClass(tx, updated.id, updated.class.name, { onAdmission: true });
-    await tx.auditLog.create({ data: { actorId: req.user!.id, action: 'UPDATE', entityType: 'Student', entityId: updated.id, metadata: { classId: p.data.classId, feesStarted: Boolean(p.data.classId), guardianLoginUpdated: Boolean(normalizedGuardian) } } });
+    await tx.auditLog.create({ data: { actorId: req.user!.id, action: 'UPDATE', entityType: 'Student', entityId: updated.id, metadata: { classId: p.data.classId, feesStarted: Boolean(p.data.classId), parentLoginsUpdated: Boolean(normalizedFather || normalizedMother), feeExempt: p.data.feeExempt } } });
     return updated;
   }, { timeout: 30_000 });
   res.json(item);
 });
 resourceRouter.delete('/students/:id', authorize('ADMIN'), async (req: AuthRequest, res) => { const id = String(req.params.id); await getDb().$transaction([getDb().auditLog.create({ data: { actorId: req.user!.id, action: 'DELETE', entityType: 'Student', entityId: id } }), getDb().student.delete({ where: { id } })]); res.status(204).send(); });
+
+resourceRouter.post('/students/:id/scholarships', authorize('ADMIN'), async (req: AuthRequest, res) => {
+  const parsed = scholarshipSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json(parsed.error.flatten());
+  const item = await getDb().$transaction(async tx => {
+    const scholarship = await tx.studentScholarship.create({ data: { studentId: String(req.params.id), ...parsed.data } });
+    const fees = await tx.fee.findMany({ where: { studentId: String(req.params.id), status: { in: ['PENDING','PARTIAL','OVERDUE'] }, dueDate: { gte: parsed.data.startsAt, ...(parsed.data.endsAt ? { lte: parsed.data.endsAt } : {}) } }, include: { concessions: true } });
+    for (const fee of fees) {
+      const existingConcessions = fee.concessions.reduce((sum, concession) => sum + Number(concession.amount), 0);
+      const available = Math.max(0, Number(fee.amount) - Number(fee.paidAmount) - existingConcessions);
+      const calculated = parsed.data.kind === 'PERCENTAGE' ? Number(fee.amount) * parsed.data.value / 100 : parsed.data.value;
+      const amount = Math.min(available, calculated);
+      if (amount > 0) await tx.feeConcession.create({ data: { feeId: fee.id, scholarshipId: scholarship.id, type: 'SCHOLARSHIP', amount, reason: parsed.data.reason } });
+      if (available > 0 && amount >= available) await tx.fee.update({ where: { id: fee.id }, data: { status: 'PAID', paidAt: new Date() } });
+    }
+    await tx.auditLog.create({ data: { actorId: req.user!.id, action: 'CREATE', entityType: 'StudentScholarship', entityId: scholarship.id, metadata: { ...parsed.data, appliedToOpenInvoices: fees.length } } });
+    return scholarship;
+  }, { timeout: 30_000 });
+  res.status(201).json(item);
+});
+resourceRouter.patch('/students/:id/scholarships/:scholarshipId', authorize('ADMIN'), async (req: AuthRequest, res) => {
+  const parsed = z.object({ isActive: z.boolean(), endsAt: z.coerce.date().optional() }).safeParse(req.body); if (!parsed.success) return res.status(400).json(parsed.error.flatten());
+  const item = await getDb().studentScholarship.update({ where: { id: String(req.params.scholarshipId), studentId: String(req.params.id) }, data: parsed.data });
+  await getDb().auditLog.create({ data: { actorId: req.user!.id, action: parsed.data.isActive ? 'ACTIVATE' : 'DEACTIVATE', entityType: 'StudentScholarship', entityId: item.id } });
+  res.json(item);
+});
+
+resourceRouter.get('/family-fee-plans', authorize('ADMIN', 'ACCOUNTANT'), async (req, res) => {
+  const academicYear = String(req.query.academicYear ?? '');
+  res.json(await getDb().familyFeePlan.findMany({ where: academicYear ? { academicYear } : {}, include: { billingStudent: { select: { id: true, admissionNo: true, firstName: true, lastName: true } }, members: { include: { student: { select: { id: true, admissionNo: true, firstName: true, lastName: true, class: true } } } }, fees: { select: { id: true, invoiceNo: true, billingPeriod: true, status: true, amount: true, paidAmount: true } } }, orderBy: { createdAt: 'desc' } }));
+});
+resourceRouter.post('/family-fee-plans', authorize('ADMIN'), async (req: AuthRequest, res) => {
+  const parsed = familyPlanSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json(parsed.error.flatten());
+  if (!parsed.data.studentIds.includes(parsed.data.billingStudentId)) return res.status(400).json({ message: 'The billing student must be included in the family.' });
+  const { studentIds, ...data } = parsed.data;
+  const item = await getDb().$transaction(async tx => {
+    const plan = await tx.familyFeePlan.create({ data: { ...data, members: { create: [...new Set(studentIds)].map(studentId => ({ studentId })) } }, include: { members: { include: { student: true } }, billingStudent: true } });
+    await billFamilyFeePlan(tx, plan.id, { onCreation: true, date: data.startsAt });
+    await tx.auditLog.create({ data: { actorId: req.user!.id, action: 'CREATE', entityType: 'FamilyFeePlan', entityId: plan.id, metadata: { ...data, studentIds } } });
+    return plan;
+  }, { timeout: 30_000 });
+  res.status(201).json(item);
+});
+resourceRouter.patch('/family-fee-plans/:id', authorize('ADMIN'), async (req: AuthRequest, res) => {
+  const parsed = z.object({ isActive: z.boolean(), endsAt: z.coerce.date().optional() }).safeParse(req.body); if (!parsed.success) return res.status(400).json(parsed.error.flatten());
+  const item = await getDb().familyFeePlan.update({ where: { id: String(req.params.id) }, data: parsed.data });
+  await getDb().auditLog.create({ data: { actorId: req.user!.id, action: parsed.data.isActive ? 'ACTIVATE' : 'DEACTIVATE', entityType: 'FamilyFeePlan', entityId: item.id } });
+  res.json(item);
+});
 
 resourceRouter.get('/parents/me/children', authorize('PARENT'), async (req: AuthRequest, res) => {
   const profile = await getDb().parentProfile.findUnique({

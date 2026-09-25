@@ -122,6 +122,14 @@ model Student {
   address         String?
   guardianName    String
   guardianPhone   String
+  fatherName      String?
+  fatherPhone     String?
+  motherName      String?
+  motherPhone     String?
+  feeExempt       Boolean                @default(false)
+  feeExemptReason String?
+  feeExemptFrom   DateTime?
+  feeExemptTo     DateTime?
   classId         String?
   class           SchoolClass?           @relation(fields: [classId], references: [id], onDelete: SetNull)
   attendance      Attendance[]
@@ -136,10 +144,64 @@ model Student {
   clubMemberships ClubMembership[]
   promotions       PromotionHistory[]
   transportAssignment StudentTransportAssignment?
+  scholarships        StudentScholarship[]
+  familyMemberships   FamilyFeePlanMember[]
+  billedFamilyPlans   FamilyFeePlan[]    @relation("FamilyBillingStudent")
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
 
   @@index([classId])
+}
+
+model StudentScholarship {
+  id          String   @id @default(cuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  name        String
+  kind        String
+  value       Decimal  @db.Decimal(12, 2)
+  reason      String
+  startsAt    DateTime
+  endsAt      DateTime?
+  isActive    Boolean  @default(true)
+  concessions FeeConcession[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([studentId, isActive, startsAt, endsAt])
+}
+
+model FamilyFeePlan {
+  id               String                @id @default(cuid())
+  name             String
+  academicYear     String
+  amount           Decimal               @db.Decimal(12, 2)
+  frequency        String                @default("SEMESTERLY")
+  dueDay           Int                   @default(10)
+  startsAt         DateTime
+  endsAt           DateTime?
+  reason           String?
+  isActive         Boolean               @default(true)
+  billingStudentId String
+  billingStudent   Student               @relation("FamilyBillingStudent", fields: [billingStudentId], references: [id], onDelete: Restrict)
+  members          FamilyFeePlanMember[]
+  fees             Fee[]
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([academicYear, isActive, startsAt, endsAt])
+  @@index([billingStudentId])
+}
+
+model FamilyFeePlanMember {
+  familyFeePlanId String
+  studentId       String
+  familyFeePlan   FamilyFeePlan @relation(fields: [familyFeePlanId], references: [id], onDelete: Cascade)
+  student         Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  joinedAt        DateTime      @default(now())
+
+  @@id([familyFeePlanId, studentId])
+  @@index([studentId])
 }
 
 model PromotionHistory {
@@ -610,6 +672,8 @@ model Fee {
   paidAt      DateTime?
   feeStructureId String?
   feeStructure FeeStructure?    @relation(fields: [feeStructureId], references: [id], onDelete: SetNull)
+  familyFeePlanId String?
+  familyFeePlan FamilyFeePlan?   @relation(fields: [familyFeePlanId], references: [id], onDelete: SetNull)
   billingPeriod String?
   payments    FeePayment[]
   concessions FeeConcession[]
@@ -618,6 +682,7 @@ model Fee {
   @@index([studentId, status])
   @@index([dueDate, status])
   @@unique([studentId, feeStructureId, billingPeriod])
+  @@unique([studentId, familyFeePlanId, billingPeriod])
 }
 
 model FeePayment {
@@ -642,7 +707,11 @@ model FeeConcession {
   amount       Decimal  @db.Decimal(12, 2)
   reason       String
   approvedById String?
+  scholarshipId String?
+  scholarship StudentScholarship? @relation(fields: [scholarshipId], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
+
+  @@unique([feeId, scholarshipId])
 }
 
 model StudentLedger {
